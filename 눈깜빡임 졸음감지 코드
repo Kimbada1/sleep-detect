@@ -1,0 +1,117 @@
+from scipy.spatial import distance as dist
+from imutils.video import FileVideoStream
+from imutils.video import VideoStream
+from imutils import face_utils
+import numpy as np
+import imutils
+import time
+import dlib
+import cv2
+import pygame
+
+#눈 종횡비 구하기
+def eye_aspect_ratio(eye):
+    A = dist.euclidean(eye[1], eye[5])
+    B = dist.euclidean(eye[2], eye[4])
+    C = dist.euclidean(eye[0], eye[3])
+    ear = (A + B) / (2.0 * C)
+    return ear
+
+#눈의 종횡비를 나타냄
+#프레임이 50(초를 나타냄)되면 알람을 울림
+EYE_AR_THRESH = 0.27
+EYE_AR_CONSEC_FRAMES = 50
+COUNTER = 0
+TOTAL = 0
+ALARM_ON = False
+
+#파일이 로컬됬는지 확인
+print("[INFO] 파일이 로컬됨...")
+detector = dlib.get_frontal_face_detector()
+predictor = dlib.shape_predictor("shape_predictor_68_face_landmarks.dat")
+
+#왼쪽과 오른쪽 눈의 인덱스를 잡음
+(lStart, lEnd) = face_utils.FACIAL_LANDMARKS_IDXS["left_eye"]
+(rStart, rEnd) = face_utils.FACIAL_LANDMARKS_IDXS["right_eye"]
+
+#비디오가 시작되는지 확인
+print("[INFO] 비디오 시작중...")
+vs = VideoStream(src=1).start()
+time.sleep(1.0)
+
+#비디오 스트림의 프레임 반복
+while True:
+    frame = vs.read()
+    frame = imutils.resize(frame, width=800)
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+   
+    rects = detector(gray, 0)
+    
+    for rect in rects:
+        shape = predictor(gray, rect)
+        shape = face_utils.shape_to_np(shape)
+
+        #양 쪽 는의 눈 종횡비를 계산하는 좌표
+        leftEye = shape[lStart:lEnd]
+        rightEye = shape[rStart:rEnd]
+        leftEAR = eye_aspect_ratio(leftEye)
+        rightEAR = eye_aspect_ratio(rightEye)
+
+        #양쪽 눈의 눈 종횡비 평균을 합산
+        ear = (leftEAR + rightEAR) / 2.0
+        
+        #각 눈을 시각화  
+        leftEyeHull = cv2.convexHull(leftEye)
+        rightEyeHull = cv2.convexHull(rightEye)
+        cv2.drawContours(frame, [leftEyeHull], -1, (0, 255, 0), 1)
+        cv2.drawContours(frame, [rightEyeHull], -1, (0, 255, 0), 1)
+        print(ear)
+        
+        #임계값을 표시하고 종횡비가 이보다 낮으면 카운터 증가
+        if ear < EYE_AR_THRESH:
+            COUNTER += 1
+            
+            #카운터가 프레임을 넘을 시 알람을 재생
+            if COUNTER >= EYE_AR_CONSEC_FRAMES:
+                
+                if not ALARM_ON:
+                    ARARM_ON = True
+                    
+                    pygame.mixer.init()
+                    pygame.mixer.music.load('alarm2.wav')
+                    pygame.mixer.music.play()
+                    #time.sleep(0.5)
+                
+                leftEyeHull = cv2.convexHull(leftEye)
+                rightEyeHull = cv2.convexHull(rightEye)
+                cv2.drawContours(frame, [leftEyeHull], -1, (255, 0, 0), 1)
+                cv2.drawContours(frame, [rightEyeHull], -1, (255, 0, 0), 1)
+                print(ear)
+                
+                cv2.putText(frame, "YOU SLEEPING!!", (230, 80),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1.3, (0, 0, 255), 2)
+        
+        else:
+            if COUNTER >= EYE_AR_CONSEC_FRAMES:
+                TOTAL += 1 
+            
+            COUNTER = 0
+            ALARM_ON=False
+        
+        cv2.putText(frame, "sc: {}".format(TOTAL), (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.0 , (0, 0, 255), 2)
+        
+        cv2.putText(frame, "c: {}".format(COUNTER), (330, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2)
+        
+        cv2.putText(frame, "EAR: {:.2f}".format(ear), (630, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2)
+    
+    cv2.imshow("dahaebozo", frame)
+    key = cv2.waitKey(1) & 0xFF
+    
+    #q를 눌러 종료
+    if key == ord("q"):
+        break
+cv2.destroyAllWindows()
+vs.stop()
